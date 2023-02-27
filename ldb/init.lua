@@ -1,7 +1,11 @@
-local logger = require "ldb.logger"
+local util = require "ldb.util"
+local collection = require "ldb.collection"
 
 
-local M = {}
+
+local M = {
+	TYPE = util.enum{"singleton", "multiple", "logs"}
+}
 
 
 
@@ -9,9 +13,8 @@ local M = {}
 
 function M.start(conf)
 	local filename = "ldb/data/"..assert(conf.name)
-
-
-	return logger(filename)
+	local type = conf.type or "singleton"
+	return collection(filename, type)
 end
 
 
