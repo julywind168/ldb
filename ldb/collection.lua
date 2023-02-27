@@ -79,8 +79,8 @@ local function collection(filename, coll_type)
 					error("ldb object‘s proxy is read-only!")
 				end,
 				__call = function (_, patch)
-					command.patch(k, patch)
 					write(COMMAND.patch, k, patch)
+					command.patch(k, patch)
 					return proxy
 				end
 			})
