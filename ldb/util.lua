@@ -1,7 +1,23 @@
 local util = {}
 
 
-function util.bytes2str(size)
+function util.table_nkey(t)
+    local sz = 0
+    local k = nil
+    
+    while true do
+        k = next(t, k)
+        if k then
+            sz = sz + 1
+        else
+            break
+        end
+    end
+    return sz
+end
+
+
+function util.bytesize2str(size)
 	if size >= 1024*1024 then
 		return string.format("%.2fMB", size/1024/1024)
 	end
