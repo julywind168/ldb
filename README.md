@@ -41,8 +41,9 @@ singleton collection 本身大小就比较小，可容忍的冗余度可以稍�
 multiple collection，可容忍的冗余度，我觉得 1.5 左右比较好
 
 
-超大数据集合：(TODO)
-ldb 的目标是 在游戏开发中 代替 mongo/redis ， 那么可存储数据量级就不能太少。同时了为了性能和实现的简单.将每个 collection 容量限制在 1000万个 object 比较合适。经测试 1000万个 简单的 table {id = i, gold = 2}。占用的内存大概是 1.2GB, 假设你有1000万注册，这1.2G内存成本应该还是支付的起的。
+超大数据集合：
+ldb 的目标是 在游戏开发中 代替 mongo/redis ， 那么可存储数据量级就不能太少。同时了为了性能和实现的简单.
+将每个 collection 容量限制在 1000万个 object 比较合适。经测试 1000万个 简单的 table {id = i, gold = 2}。占用的内存大概是 1.2GB, 假设你有1000万注册，这1.2G内存成本应该还是支付的起的。
 
-具体思路，在 load file 的过程中，我们只加载 object 的精简信息，当程序查询某个object时，再真正加载该object
+内存优化思路，在 loadfile 的过程中，我们只加载 object 的精简信息(profile)，当程序查询某个object时，再真正加载该object(full version)
 ```

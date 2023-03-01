@@ -1,3 +1,4 @@
+require "ldb.dump"
 local util = require "ldb.util"
 local collection = require "ldb.collection"
 

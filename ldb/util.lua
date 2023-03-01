@@ -1,6 +1,16 @@
 local util = {}
 
 
+function util.reduce(t, profile)
+	for k,v in pairs(t) do
+		if not profile[k] then
+			t[k] = nil
+		end
+	end
+	return t
+end
+
+
 function util.table_nkey(t)
     local sz = 0
     local k = nil

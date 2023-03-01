@@ -4,7 +4,22 @@ local serialize = require "serialize"
 local COMMAND = util.enum{"init", "patch", "delete"}
 
 
-local function load_file(filename)
+local function read_one_line(file)
+	local head = file:read(2)
+	if not head then
+		return
+	end
+	local size = head:byte(1) * 256 + head:byte(2)
+	local body = assert(file:read(size))
+	return serialize.unpack(body)
+end
+
+
+local function load_file(filename, multiple, profile)
+	if multiple then
+		profile = profile or {}
+	end
+
 	local db = {}
 	local mt = {
 		size = 0,
@@ -14,16 +29,48 @@ local function load_file(filename)
 
 	local command = {}
 
-	function command.init(k, v)
+
+	function command._init(k, v)
 		if not db[k] then
 			mt.nkey = mt.nkey + 1
 		end
 		db[k] = v
 	end
 
-	function command.patch(k, patch)
+
+	function command.init(k, v, offset)
+		if not db[k] then
+			mt.nkey = mt.nkey + 1
+		end
+
+		if multiple then
+			v = util.reduce(v, profile)
+			v.__profile = true
+			v[1] = offset
+
+			db[k] = v
+		else
+			db[k] = v
+		end
+	end
+
+
+	function command._patch(k, patch)
 		local t = assert(db[k], string.format("not found key:%s in %s", k, filename))
-		util.patch(t, patch)
+		for k,v in pairs(patch) do
+			t[k] = v
+		end
+	end
+
+	function command.patch(k, patch, offset)
+		local t = assert(db[k], string.format("not found key:%s in %s", k, filename))
+		assert(t.__profile)
+		for k,v in pairs(patch) do
+			if profile[k] then
+				t[k] = v
+			end
+		end
+		t[#t+1] = offset
 	end
 
 	function command.delete(k)
@@ -47,7 +94,7 @@ local function load_file(filename)
 			local body = assert(file:read(size))
 			local cmd, k, v = serialize.unpack(body)
 			local f = command[assert(COMMAND[cmd])]
-			f(k, v)
+			f(k, v, mt.size)
 
 			mt.size = mt.size + 2 + size
 			mt.ncmd = mt.ncmd + 1
@@ -66,14 +113,34 @@ local function writer(filename, mode)
 
 	local function write(...)
 		local s = string.pack(">s2", serialize.pack(...))
+		assert(file:seek("end"))
 		assert(file:write(s))
 	end
+
+	local function load_full_object(profile, name)
+		local obj
+		for i,offset in ipairs(profile) do
+			assert(file:seek("set", offset))
+			local cmd, k, v = read_one_line(file)
+			if i == 1 then
+				assert(cmd == COMMAND.init)
+				obj = v
+			else
+				assert(cmd == COMMAND.patch)
+				for key,value in pairs(v) do
+					obj[key] = value
+				end
+			end
+		end
+		return assert(obj, string.format("Failed load object %s", name))
+	end
+
 
 	local function close()
 		file:close()
 	end
 
-	return write, close
+	return write, close, load_full_object
 end
 
 
@@ -92,15 +159,15 @@ end
 local function collection(filename, conf)
 
 	-- Load data from file, and check redundancy
-	local db, mt, command = load_file(filename)
+	local db, mt, command = load_file(filename, conf.multiple, conf.profile)
 
 	if mt.ncmd/mt.nkey > conf.reduce then
-		print(string.format('File [%s] redundancy is %0.2f, will been overwrite', filename, mt.ncmd/mt.nkey))
-		overwrite(filename, db)
+		-- print(string.format('File [%s] redundancy is %0.2f, will been overwrite', filename, mt.ncmd/mt.nkey))
+		-- overwrite(filename, db)
 	end
 
 	-- Reopen and wait for writing
-	local write, close = writer(filename, "a+")
+	local write, close, load_full_object = writer(filename, "a+")
 
 
 	local self = setmetatable({}, {__gc = function ()
@@ -109,7 +176,7 @@ local function collection(filename, conf)
 
 	function self.set(k, v)
 		write(COMMAND.init, k, v)
-		command.init(k, v)
+		command._init(k, v)
 		return self
 	end
 
@@ -117,7 +184,14 @@ local function collection(filename, conf)
 		local v = db[k]
 
 		-- create a read-only proxy, but can use `proxy{k = v}` to update it. 
-		if conf.multiple and type(v) == "table" then
+		if conf.multiple then
+			assert(type(v) == "table")
+
+			if v.__profile then
+				v = load_full_object(v, k)
+				db[k] = v
+			end
+
 			local proxy = setmetatable({}, {
 				__index = v,
 				__pairs = function ()
@@ -128,7 +202,7 @@ local function collection(filename, conf)
 				end,
 				__call = function (_, patch)
 					write(COMMAND.patch, k, patch)
-					command.patch(k, patch)
+					command._patch(k, patch)
 					return proxy
 				end
 			})
