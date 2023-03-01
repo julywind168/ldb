@@ -1,17 +1,42 @@
 local util = require "ldb.util"
 local serialize = require "serialize"
 
-
 local COMMAND = util.enum{"init", "patch", "delete"}
 
 
+local function load_file(filename)
+	local db = {}
+	local mt = {
+		size = 0,
+		ncmd = 0,
+		nkey = 0
+	}
 
-local function load_file(filename, command)
-	local ncmd = 0
+	local command = {}
+
+	function command.init(k, v)
+		if not db[k] then
+			mt.nkey = mt.nkey + 1
+		end
+		db[k] = v
+	end
+
+	function command.patch(k, patch)
+		local t = assert(db[k], string.format("not found key:%s in %s", k, filename))
+		util.patch(t, patch)
+	end
+
+	function command.delete(k)
+		local v = db[k]
+		if v then
+			mt.nkey = mt.nkey - 1
+			db[k] = nil
+		end
+		return v
+	end
+
 	local file, err = io.open(filename)
 	if file then
-		local file_size = 0
-
 		local clock = os.clock()
 		while true do
 			local head = file:read(2)
@@ -24,16 +49,15 @@ local function load_file(filename, command)
 			local f = command[assert(COMMAND[cmd])]
 			f(k, v)
 
-			file_size = file_size + 2 + size
-			ncmd = ncmd + 1
-			-- print(ncmd, COMMAND[cmd], k, v)
+			mt.size = mt.size + 2 + size
+			mt.ncmd = mt.ncmd + 1
 		end
 		file:close()
-		print(string.format('File "%s" Loaded, size:%s use %fs', filename, util.bytesize2str(file_size), os.clock() - clock))
+		print(string.format('File [%s] Loaded, size:%s use %fs', filename, util.bytesize2str(mt.size), os.clock() - clock))
 	else
 		-- print(err)
 	end
-	return ncmd
+	return db, mt, command
 end
 
 
@@ -60,38 +84,19 @@ local function overwrite(filename, db)
 		write(COMMAND.init, k, v)
 	end
 	close()
-	print(string.format('File "%s" overwrite done use %fs', filename, os.clock() - clock))
+	print(string.format('File [%s] overwrite done use %fs', filename, os.clock() - clock))
 end
 
 
 
-local function collection(filename, coll_type, tolerable_redundancy)
-	local db = {}
-
-
-	local command = {}
-
-	function command.init(k, v)
-		db[k] = v
-	end
-
-	function command.patch(k, patch)
-		local t = assert(db[k])
-		util.patch(t, patch)
-	end
-
-	function command.delete(k)
-		db[k] = nil
-	end
+local function collection(filename, conf)
 
 	-- Load data from file, and check redundancy
-	local ncmd = load_file(filename, command)
-	if tolerable_redundancy then
-		local nkey = util.table_nkey(db)
-		if ncmd/nkey > tolerable_redundancy then
-			print(string.format('File "%s" redundancy is %0.2f, will been overwrite', filename, ncmd/nkey))
-			overwrite(filename, db)
-		end
+	local db, mt, command = load_file(filename)
+
+	if mt.ncmd/mt.nkey > conf.reduce then
+		print(string.format('File [%s] redundancy is %0.2f, will been overwrite', filename, mt.ncmd/mt.nkey))
+		overwrite(filename, db)
 	end
 
 	-- Reopen and wait for writing
@@ -104,7 +109,7 @@ local function collection(filename, coll_type, tolerable_redundancy)
 
 	function self.set(k, v)
 		write(COMMAND.init, k, v)
-		db[k] = v
+		command.init(k, v)
 		return self
 	end
 
@@ -112,7 +117,7 @@ local function collection(filename, coll_type, tolerable_redundancy)
 		local v = db[k]
 
 		-- create a read-only proxy, but can use `proxy{k = v}` to update it. 
-		if type(v) == "table" and coll_type == "multiple" then
+		if conf.multiple and type(v) == "table" then
 			local proxy = setmetatable({}, {
 				__index = v,
 				__pairs = function ()
@@ -135,9 +140,7 @@ local function collection(filename, coll_type, tolerable_redundancy)
 
 	function self.del(k)
 		write(COMMAND.delete, k)
-		local v = db[k]
-		db[k] = nil
-		return v
+		return command.delete(k)
 	end
 
 	return self

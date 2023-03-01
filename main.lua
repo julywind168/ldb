@@ -48,7 +48,7 @@ end
 local function example2()
 	print('multiple objects example ------------------------------------->')
 
-	local players = ldb.start{name = "players", type = "multiple"}
+	local players = ldb.start{name = "players", multiple = 1000}
 
 
 	players.set('openid_1', {id = 1, nick = 'windy', gold = 100})

@@ -3,28 +3,20 @@ local collection = require "ldb.collection"
 
 -- Default tolerable redundancy
 local default_reduce = {
-	singleton = 2,
+	single = 2,
 	multiple = 1.5
 }
 
 
 
-local M = {
-	TYPE = util.enum{"singleton", "multiple", "logs"}
-}
-
-
-
+local M = {}
 
 
 function M.start(conf)
 	local filename = "ldb/data/"..assert(conf.name)
-	local type = conf.type or "singleton"
-	local reduce = conf.reduce or default_reduce[type]
-	if type == "logs" then
-		reduce = nil
-	end
-	return collection(filename, type, reduce)
+	conf.reduce = conf.reduce or (conf.multiple and default_reduce.multiple or default_reduce.single)
+	assert(conf.reduce > 1, string.format("reduce %.2f must greater than 1.0", conf.reduce))
+	return collection(filename, conf)
 end
 
 
